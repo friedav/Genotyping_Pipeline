@@ -1,0 +1,16 @@
+data/
+output*/
+resources/
+env/
+work/
+.nextflow/
+.nextflow.log*
+nextflow.out
+.Rproj.user
+.Rhistory
+*.RData
+*.Rproj
+*.pdf
+*.out
+*.log
+*.html

@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH --job-name=nf-run
+#SBATCH --output=nextflow.out
+#SBATCH -p long
+#SBATCH -c 1
+#SBATCH -t 7-0
+#SBATCH --account=ag_ukihg_forstner
+
+module load Java/11.0.2
+
+# full merged FOR2107 v2019 + v2022 sample
+nextflow run imputation.nf -resume -with-report \
+  --outdir "output/FOR2107_2019_2022_Genotypes_Merged" \
+  --outpref "FOR2107_2019_2022_merged" \
+  --bfile_dir "output/FOR2107_2019_2022_Genotypes_Merged" \
+  --bfile_pref "FOR2107_2019_2022_merged_postQC"
+
+# # DNA methylation subsample
+# nextflow run imputation.nf -resume -with-report \
+#   --outdir "output/FOR2107_Genotypes_DNAm_sample" \
+#   --outpref "FOR2107_DNAm_sample" \
+#   --bfile_dir "output/FOR2107_Genotypes_DNAm_sample" \
+#   --bfile_pref "FOR2107_Genotypes_DNAm_sample_postQC"
+

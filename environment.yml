@@ -1,0 +1,26 @@
+name: PRS_pipeline
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - plink=1.90b6.12
+  - plink2
+  #- gcc
+  #- glib
+  #- libgcc
+  #- Cmake
+  - r-base=3.6.1
+  - r-tidyverse
+  - r-dplyr=1
+  - r-rlang
+  - r-data.table
+  - r-readxl
+  - r-haven=2.3.1 # https://github.com/tidyverse/haven/issues/615
+  - r-labelled
+  - r-stringr
+  - r-here
+  - r-e1071 # required by KING
+  - r-doparallel # used by KING but not required
