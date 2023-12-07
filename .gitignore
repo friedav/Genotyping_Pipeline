@@ -6,6 +6,7 @@ work/
 .nextflow/
 .nextflow.log*
 nextflow.out
+nextflow_wrapper.job
 .Rproj.user
 .Rhistory
 *.RData
