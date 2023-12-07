@@ -97,12 +97,11 @@ sed 's/$/\tAutosomal heterozygosity/' ${out}_QC2_het.remove \
 #  else), and then rerunning with parameters corresponding to the empirical gap."
 
 # identify sex mismatches and samples with X-chromosomal F coefficient <0.8 & >0.3
-# (after looking at distribution of F coeffs, increased female thres from 0.2 to
-# 0.3, because two samples - depsyumr00641 with F=0.204 and depsyumr01001 with
-# F=0.216 - visually still belong to normal distribution of females)
+# (note: check distribution of F coeffs whether threshold suits given dataset)
 plink --bfile ${out}_QC3 --extract ${out}_QC2_pruned.prune.in --check-sex 0.3 \
       --out ${out}_QC3_sex
 awk '$5 == "PROBLEM"' ${out}_QC3_sex.sexcheck
+Rscript bin/plot_F_distribution.R ${out}_QC3_sex.sexcheck
 
 # issues with x chromosomal heterozygosity
 tail -n +2  ${out}_QC3_sex.sexcheck | awk -v 'OFS=\t' '{$1=$1};1' |
