@@ -48,7 +48,9 @@ plink --bfile ${raw} --missing --geno 0.02 --maf 0.01 \
 # (note: order of operations: --mind before --missing -> *.lmiss reflects 
 #  variant-level call rates after filtering of individuals)
 plink --bfile ${out}_QC1 --mind 0.02 --missing --make-bed --out ${out}_QC2
-sed 's/$/\tCall rate/' ${out}_QC2.irem >> ${out}.sample_exclusions.tsv
+if [ -f "${out}_QC2.irem" ]; then
+    sed 's/$/\tCall rate/' ${out}_QC2.irem >> ${out}.sample_exclusions.tsv
+fi
 
 
 
