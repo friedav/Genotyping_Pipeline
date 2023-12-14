@@ -43,7 +43,7 @@ king_1kg_ref=data/king_1kg_ref/KGref
 # sample swaps that can be resolved by swapping back IDs
 if [ -z "$swaps" ]; then
     echo No sample swaps are resolved
-    famresolved="${out}.fam"
+    famresolved="${out}_QC4.fam"
 else
     echo Resolving sample swaps: 
     cat $swaps
