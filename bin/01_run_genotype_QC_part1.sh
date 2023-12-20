@@ -38,10 +38,11 @@ echo -e "FID\tIID\tReason" > ${out}.sample_exclusions.tsv
 #### Pre-filtering: Call rate and MAF
 ################################################################################
 
-# remove SNPs with low call rate
+# remove SNPs with low call rate and deviation from Hardy-Weinberg equilibrium
 # (note: order of operations: --missing before --geno/--maf -> *.imiss reflects 
 #  individual-level call rates before filtering of variants)
 plink --bfile ${raw} --missing --geno 0.02 --maf 0.01 \
+      --hwe include-nonctrl 1e-6 \
       --make-bed --out ${out}_QC1       
 
 # remove individuals with low call rate 
