@@ -73,10 +73,6 @@ plink --bfile ${out}_QC5 --extract ${out}_QC2_pruned.prune.in \
       --genome --min 0.125 --out ${out}_QC5_rels_dups
 awk '$10 > 0.9' ${out}_QC5_rels_dups.genome
 
-# generate list of pairs of relatives with pi hat > 0.125
-awk '{if ($10 <= 0.9) print $1,$2,$3,$4,$10}' ${out}_QC5_rels_dups.genome \
-    > ${out}_QC5_rels.flag
-
 
 
 ################################################################################
@@ -99,54 +95,66 @@ king -b ${king_1kg_ref}.bed,${out}_QC5_pruned.bed \
 mv ${outpref}_QC5_king* ${outdir}
 rm .RData
 
+# keep only samples annotated as EUR ancestry to avoid confounding due to
+# population stratification
+awk 'BEGIN {OFS="\t"} {if ($9 != "EUR") {print $1,$2}}' \
+  ${out}_QC5_king_InferredAncestry.txt | tail -n +2 > ${out}_QC5_nonEUR.remove
+plink --bfile ${out}_QC5 --remove ${out}_QC5_nonEUR.remove \
+      --make-bed --out ${out}_QC6
+sed 's/$/\tNon-EUR ancestry/' ${out}_QC5_nonEUR.remove >> ${out}.sample_exclusions.tsv
+
 
 
 ################################################################################
-#### Genetic outliers - MDS approach like Till Andlauer's v2019 genotype QC
+#### Genetic outliers
 ################################################################################
 # due to necessary temporary removal of relatives, run in two parts: 
 #   A) IID1 from each pair of relatives removed
 #   B) IID2 from each pair of relatives removed
 
-cut -f1,2 -d' ' ${out}_QC5_rels.flag | sed 's/ /\t/' > ${out}_QC5_rels.A.temp_remove
-cut -f3,4 -d' ' ${out}_QC5_rels.flag | sed 's/ /\t/' > ${out}_QC5_rels.B.temp_remove
+# generate list of pairs of relatives with pi hat > 0.125
+plink --bfile ${out}_QC6 --extract ${out}_QC2_pruned.prune.in \
+      --genome --min 0.125 --out ${out}_QC6_rels_dups
+awk '{if ($10 <= 0.9) print $1,$2,$3,$4,$10}' ${out}_QC6_rels_dups.genome \
+    > ${out}_QC6_rels.flag
 
-plink --bfile ${out}_QC5 --geno 0.02 --hwe include-nonctrl 1e-3 --maf 0.05 \
-      --exclude range data/remove_prune.txt --set-hh-missing \
-      --indep-pairphase 200 100 0.2 --out ${out}_QC5_pruned
-
-for part in A B; do
-  plink --bfile ${out}_QC5 --extract ${out}_QC5_pruned.prune.in \
-        --remove ${out}_QC5_rels.${part}.temp_remove \
-        --cluster --mind 0.05 --mds-plot 10 --out ${out}_QC5_MDS_outlier_${part}
-  Rscript bin/get_mds_outliers.R 4 \
-      ${out}_QC5_MDS_outlier_${part}.mds ${out}_QC5_MDS_outlier_${part}
-done
+cut -f1,2 -d' ' ${out}_QC6_rels.flag | sed 's/ /\t/' > ${out}_QC6_rels.A.temp_remove
+cut -f3,4 -d' ' ${out}_QC6_rels.flag | sed 's/ /\t/' > ${out}_QC6_rels.B.temp_remove
 
 
-# ## alternativ: iterative outlier removal
+# ## Option A: MDS approach like Till Andlauer's v2019 genotype QC
 # for part in A B; do
-#   touch ${out}_QC5_MDS_outlier.${part}.remove 
+#   plink --bfile ${out}_QC6 --extract ${out}_QC2_pruned.prune.in \
+#         --remove ${out}_QC6_rels.${part}.temp_remove \
+#         --cluster --mind 0.05 --mds-plot 10 --out ${out}_QC6_outlier.${part}
+#   Rscript bin/get_mds_outliers.R 4 \
+#       ${out}_QC6_outlier.${part}.mds ${out}_QC6_outlier.${part}
+# done
+# 
+# 
+# ## Option B: MDS-based iterative outlier removal
+# for part in A B; do
+#   touch ${out}_QC6_outlier.${part}.remove 
 # 
 #   # iterative outlier detection
 #   i=1
 #   while true; do
 #     # combine list of relatives to be removed with detected outliers to be removed
-#     cat ${out}_QC5_rels.${part}.temp_remove ${out}_QC5_MDS_outlier.${part}.remove |
-#       grep -v outlier >> ${out}_QC5_MDS_rels_outlier.${part}.remove
+#     cat ${out}_QC6_rels.${part}.temp_remove ${out}_QC6_outlier.${part}.remove |
+#       grep -v outlier >> ${out}_QC6_rels_outlier.${part}.remove
 #   
-#     plink --bfile ${out}_QC5 --extract ${out}_QC5_pruned.prune.in \
-#           --remove ${out}_QC5_MDS_rels_outlier.${part}.remove \
+#     plink --bfile ${out}_QC6 --extract ${out}_QC2_pruned.prune.in \
+#           --remove ${out}_QC6_rels_outlier.${part}.remove \
 #           --cluster --mind 0.05 --mds-plot 10 \
-#           --out ${out}_QC5_MDS_outlier.${part}_round${i}
+#           --out ${out}_QC6_outlier.${part}_round${i}
 #     
 #     Rscript bin/get_mds_outliers.R 4 \
-#         ${out}_QC5_MDS_outlier.${part}_round${i}.mds \
-#         ${out}_QC5_MDS_outlier.${part}_round${i} 
+#         ${out}_QC6_outlier.${part}_round${i}.mds \
+#         ${out}_QC6_outlier.${part}_round${i} 
 #         
-#     if [ -f "${out}_QC5_MDS_outlier.${part}_round${i}.remove" ]; then
-#       echo "Genetic outlier round $i" >> ${out}_QC5_MDS_outlier.${part}.remove
-#       cat ${out}_QC5_MDS_outlier.${part}_round${i}.remove >> ${out}_QC5_MDS_outlier.${part}.remove
+#     if [ -f "${out}_QC6_outlier.${part}_round${i}.remove" ]; then
+#       echo "Genetic outlier round $i" >> ${out}_QC6_outlier.${part}.remove
+#       cat ${out}_QC6_outlier.${part}_round${i}.remove >> ${out}_QC6_outlier.${part}.remove
 #       i=$[$i + 1]
 #     else
 #       echo "No further outliers found in part $part round $i"
@@ -156,59 +164,41 @@ done
 # done
 
 
-cat ${out}_QC5_MDS_outlier_{A,B}.remove | grep -v FID | grep -v round | cut -f1,2 |
-  sort | uniq > ${out}_QC5_MDS_outlier.remove
+## Option C: EIGENSOFT approach: iterative removal of genetic outliers, with  
+# outlier defined as >6 SD distance from the mean within PC1-10
+for part in A B; do
+  touch ${out}_QC6_outlier.${part}.remove 
 
-plink --bfile ${out}_QC5 --remove ${out}_QC5_MDS_outlier.remove \
-      --make-bed --out ${out}_QC6
+  # iterative outlier detection
+  i=1
+  while true; do
+    # combine list of relatives to be removed with detected outliers to be removed
+    cat ${out}_QC6_rels.${part}.temp_remove ${out}_QC6_outlier.${part}.remove |
+      grep -v outlier >> ${out}_QC6_rels_outlier.${part}.remove
+  
+    plink --bfile ${out}_QC6 --extract ${out}_QC2_pruned.prune.in \
+          --remove ${out}_QC6_rels_outlier.${part}.remove --pca 10 header tabs \
+          --out ${out}_QC6_outlier.${part}_round${i}
+    
+    Rscript bin/get_pca_outliers.R 6 \
+        ${out}_QC6_outlier.${part}_round${i}.eigenvec \
+        ${out}_QC6_outlier.${part}_round${i} 
+        
+    if [ -f "${out}_QC6_outlier.${part}_round${i}.remove" ]; then
+      echo "Genetic outlier round $i" >> ${out}_QC6_outlier.${part}.remove
+      cat ${out}_QC6_outlier.${part}_round${i}.remove >> ${out}_QC6_outlier.${part}.remove
+      i=$[$i + 1]
+    else
+      echo "No further outliers found in part $part round $i"
+      break
+    fi
+  done
+done
 
-
-
-# ################################################################################
-# #### Genetic outliers - EIGENSOFT approach
-# ################################################################################
-# # EIGENSOFT approach: iterative removal of genetic outliers, with outlier 
-# # defined as >6 SD distance from the mean within PC1-10
-# #
-# # due to necessary temporary removal of relatives, run in two parts: 
-# #   A) IID1 from each pair of relatives removed
-# #   B) IID2 from each pair of relatives removed
-# 
-# cut -f1,2 -d' ' ${out}_QC5_rels.flag | sed 's/ /\t/' > ${out}_QC5_rels.A.temp_remove
-# cut -f3,4 -d' ' ${out}_QC5_rels.flag | sed 's/ /\t/' > ${out}_QC5_rels.B.temp_remove
-# 
-# for part in A B; do
-#   touch ${out}_QC5_outlier.${part}.remove 
-# 
-#   # iterative outlier detection
-#   i=1
-#   while true; do
-#     # combine list of relatives to be removed with detected outliers to be removed
-#     cat ${out}_QC5_rels.${part}.temp_remove ${out}_QC5_outlier.${part}.remove |
-#       grep depsyumr >> ${out}_QC5_rels_outlier.${part}.remove
-#   
-#     plink --bfile ${out}_QC5 --extract ${out}_QC5_pruned.prune.in \
-#           --remove ${out}_QC5_rels_outlier.${part}.remove --pca 10 header tabs \
-#           --out ${out}_QC5_outlier.${part}_round${i}
-#     
-#     Rscript bin/get_pca_outliers.R 6 \
-#         ${out}_QC5_outlier.${part}_round${i}.eigenvec \
-#         ${out}_QC5_outlier.${part}_round${i} 
-#         
-#     if [ -f "${out}_QC5_outlier.${part}_round${i}.remove" ]; then
-#       echo "Genetic outlier round $i" >> ${out}_QC5_outlier.${part}.remove
-#       cat ${out}_QC5_outlier.${part}_round${i}.remove >> ${out}_QC5_outlier.${part}.remove
-#       i=$[$i + 1]
-#     else
-#       echo "No further outliers found in part $part round $i"
-#       break
-#     fi
-#   done
-# done
-# 
-# cat ${out}_QC5_outlier.{A,B}.remove | grep -v FID | grep -v round | cut -f1,2 |
-#   sort | uniq > ${out}_QC5_outlier.remove
-
+cat ${out}_QC6_outlier.{A,B}.remove | grep -v FID | grep -v round | cut -f1,2 |
+  sort | uniq > ${out}_QC6_outlier.remove
+plink --bfile ${out}_QC6 --remove ${out}_QC6_outlier.remove \
+      --make-bed --out ${out}_QC7
 
 
 
@@ -220,7 +210,7 @@ plink --bfile ${out}_QC5 --remove ${out}_QC5_MDS_outlier.remove \
 awk '$5=="a" && $6=="t" || 
      $5=="t" && $6=="a" || 
      $5=="c" && $6=="g" || 
-     $5=="g" && $6=="c" {print $2}' ${out}_QC6.bim > ${out}_QC6_ambiguous.snps
+     $5=="g" && $6=="c" {print $2}' ${out}_QC7.bim > ${out}_QC7_ambiguous.snps
 
 # remove:
 # - non-autosomal variants
@@ -228,7 +218,10 @@ awk '$5=="a" && $6=="t" ||
 # - call rate < 98%
 # - MAF < 1%
 # - HWE p value < 1e-6
-plink --bfile ${out}_QC6 --chr 1-22 --exclude ${out}_QC6_ambiguous.snps \
+plink --bfile ${out}_QC7 --chr 1-22 --exclude ${out}_QC7_ambiguous.snps \
       --geno 0.02 --maf 0.01 --hwe include-nonctrl 1e-6 \
       --make-bed --out ${out}_postQC
 
+# generate final list of pairs of relatives with pi hat > 0.125
+plink --bfile ${out}_postQC --extract ${out}_QC2_pruned.prune.in \
+      --genome --min 0.125 --out ${out}_postQC_rels
