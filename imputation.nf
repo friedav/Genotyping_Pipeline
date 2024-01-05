@@ -46,7 +46,7 @@ params.thres_r2 = 0.3
 /**** Processes ****/
 
 /* prepare target bcf for phasing:
- module load bzip2* split input data by chromosome, recode into vcf, split multiallelic sites, 
+ * split input data by chromosome, recode into vcf, split multiallelic sites, 
  * align to reference, make index
  */
 process prep_target_bcf {
