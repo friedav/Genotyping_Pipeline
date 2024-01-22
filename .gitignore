@@ -1,6 +1,7 @@
 data/
 output*/
 resources/
+reports/
 env/
 work/
 .nextflow/
@@ -11,6 +12,7 @@ nextflow_wrapper.job
 .Rhistory
 *.RData
 *.Rproj
+*.code-workspace
 *.pdf
 *.out
 *.log
