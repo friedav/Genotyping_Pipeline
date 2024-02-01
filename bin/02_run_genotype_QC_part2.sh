@@ -13,6 +13,7 @@
 # 02_run_genotype_QC_part2.sh \
 #       <prefix used for bfile sets of processed data> \
 #       <output directory> \
+#       <Illumina variant ID to rs ID mapping file (array-specific)> \
 #       <optional: remove file> \
 #       <optional: swap file> 
 #
@@ -28,8 +29,10 @@ outpref=$1
 outdir=$2
 out=$outdir/$outpref
 
-remove=$3
-swaps=$4
+illumina2rsid=$3
+
+remove=$4
+swaps=$5
 
 # auxiliary data files / directories
 king_1kg_ref=data/king_1kg_ref/KGref
@@ -199,26 +202,39 @@ cat ${out}_QC6_outlier.{A,B}.remove | grep -v FID | grep -v round | cut -f1,2 |
   sort | uniq > ${out}_QC6_outlier.remove
 plink --bfile ${out}_QC6 --remove ${out}_QC6_outlier.remove \
       --make-bed --out ${out}_QC7
+sed 's/$/\tGenetic outlier/' ${out}_QC6_outlier.remove >> ${out}.sample_exclusions.tsv
 
 
 
 ################################################################################
-#### Additional variant filtering
+#### Additional variant filtering and ID conversion
 ################################################################################
+
+# convert Illumina IDs to rs IDs where necessary and exclude duplicate variants
+# (-> ${out}_QC7.duplicates.exclude and ${out}_QC7.updatedIDs_dupsFlagged.bim)
+Rscript bin/update_Illumina_IDs.R ${out}_QC7.bim $illumina2rsid
 
 # identify ambiguous SNPs
 awk '$5=="a" && $6=="t" || 
      $5=="t" && $6=="a" || 
      $5=="c" && $6=="g" || 
-     $5=="g" && $6=="c" {print $2}' ${out}_QC7.bim > ${out}_QC7_ambiguous.snps
+     $5=="g" && $6=="c" {print $2}' ${out}_QC7.updatedIDs_dupsFlagged.bim \
+     > ${out}_QC7.updatedIDs_dupsFlagged.ambiguous.snps
+
+# combine variant exclusion lists from the last two commands
+cat ${out}_QC7.duplicates.exclude \
+    ${out}_QC7.updatedIDs_dupsFlagged.ambiguous.snps | sort | uniq \
+    > ${out}_QC7.dups_ambiguous.exclude
 
 # remove:
+# - duplicate variants (based on identical ID)
 # - non-autosomal variants
 # - ambiguous SNPs
 # - call rate < 98%
 # - MAF < 1%
 # - HWE p value < 1e-6
-plink --bfile ${out}_QC7 --chr 1-22 --exclude ${out}_QC7_ambiguous.snps \
+plink --bfile ${out}_QC7 --bim ${out}_QC7.updatedIDs_dupsFlagged.bim \
+      --chr 1-22 --exclude ${out}_QC7.dups_ambiguous.exclude \
       --geno 0.02 --maf 0.01 --hwe include-nonctrl 1e-6 \
       --make-bed --out ${out}_postQC
 
