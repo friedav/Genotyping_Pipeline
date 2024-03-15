@@ -118,6 +118,7 @@ process run_phasing {
   """
   eagle --vcfTarget $targetbcf \
         --vcfRef $refbcf \
+        --allowRefAltSwap \
         --geneticMapFile $genmap \
         --chrom $chr \
         --outPrefix ${params.outpref}_chr${chr}.${params.ref}_phased \
