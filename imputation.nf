@@ -10,6 +10,9 @@
 params.outdir = ""
 params.outpref = ""
 
+// use either HRC or 1000 Genomes (1kg) reference data
+params.ref = "HRC"
+
 // target post-QC bfile set
 params.bfile_dir=""
 params.bfile_pref=""
@@ -18,18 +21,34 @@ bfile = Channel.value( [params.bfile_pref,
                        file("${params.bfile_dir}/${params.bfile_pref}.bim"),
                        file("${params.bfile_dir}/${params.bfile_pref}.fam")] )
 
-// reference fasta file
-reffasta = file("$baseDir/data/1kg_Phase3/human_g1k_v37.fasta")
+if(params.ref =~ /HRC/) {
+  // reference haplotypes
+  refdir = "$baseDir/data/HRC1.1"
+  refvariants = file("$refdir/HRC.r1-1.EGA.GRCh37.sites.tab")
+  refeagle = Channel.fromFilePairs("$refdir/BCF/HRC.r1-1.EGA.GRCh37.chr*.haplotypes.{bcf,bcf.csi}")
+                    .filter{ it[0] =~ /chr\d+/ }
+                    .map{ pref, files -> [(pref =~ /chr(\d+)/)[0][1], files[0], files[1]] }
+  refminimac = Channel.fromPath("$refdir/MVCF/HRC.r1-1.EGA.GRCh37.chr*.haplotypes.msav")
+                      .filter( ~/.*\d+\.haplotypes.msav/ )
+                      .map{ file -> [ (file.name =~ /chr(\d+)/)[0][1], file ] } 
 
-// reference haplotypes
-refdir = "$baseDir/data/1kg_Phase3"
-refeagle = Channel.fromFilePairs("$refdir/ALL.chr*.phase3_integrated.20130502.genotypes.{bcf,bcf.csi}")
-                .filter{ it[0] =~ /chr\d+/ }
-                .map{ pref, files -> [(pref =~ /chr(\d+)/)[0][1], files[0], files[1]] }
-refminimac = Channel.fromPath("$refdir/Minimac_G1K_P3_MSAV_FILES_WITH_ESTIMATES/*.1000g.Phase3.v5.With.Parameter.Estimates.msav")
-                  .filter( ~/.*\d+\.1000g.Phase3.*/ )
-                  .map{ file -> [ (file.name =~ /^\d+/)[0], file ] }
-                  .view()
+} else if(params.ref =~ /1kg/) {
+  // reference haplotypes
+  refdir = "$baseDir/data/1kg_Phase3"
+  refvariants = file("$refdir/1000GP_Phase3_combined.legend")
+  refeagle = Channel.fromFilePairs("$refdir/ALL.chr*.phase3_integrated.20130502.genotypes.{bcf,bcf.csi}")
+                    .filter{ it[0] =~ /chr\d+/ }
+                    .map{ pref, files -> [(pref =~ /chr(\d+)/)[0][1], files[0], files[1]] }
+  refminimac = Channel.fromPath("$refdir/Minimac_G1K_P3_MSAV_FILES_WITH_ESTIMATES/*.1000g.Phase3.v5.With.Parameter.Estimates.msav")
+                      .filter( ~/.*\d+\.1000g.Phase3.*/ )
+                      .map{ file -> [ (file.name =~ /^\d+/)[0], file ] }    
+
+} else {
+  error "Error: Currently, only HRC or 1kg are implemented as --ref parameter"
+}
+
+// reference fasta file
+reffasta = file("$baseDir/data/1kg_Phase3/human_g1k_v37.fasta")  
 
 // genetic coordinates
 genmap = file("/home/fdavid/bin/Eagle_v2.4.1/tables/genetic_map_hg19_withX.txt.gz")
@@ -93,7 +112,7 @@ process run_phasing {
   file(genmap)
 
   output:
-  tuple val(chr), file("${params.outpref}_chr${chr}.vcf.gz") into target_phased
+  tuple val(chr), file("${params.outpref}_chr${chr}.${params.ref}_phased.vcf.gz") into target_phased
 
   script:
   """
@@ -101,7 +120,7 @@ process run_phasing {
         --vcfRef $refbcf \
         --geneticMapFile $genmap \
         --chrom $chr \
-        --outPrefix ${params.outpref}_chr${chr} \
+        --outPrefix ${params.outpref}_chr${chr}.${params.ref}_phased \
         --vcfOutFormat z \
         --numThreads ${task.cpus} \
     2>&1 | tee eagle_chr${chr}.log
@@ -118,7 +137,7 @@ process run_imputation {
   tuple val(chr), file(target), file(refminimac) from target_phased.combine(refminimac, by:0)
 
   output:
-  tuple val(chr), file("${params.outpref}_chr${chr}.imputed.vcf.gz") into target_imputed
+  tuple val(chr), file("${params.outpref}_chr${chr}.${params.ref}_imputed.vcf.gz") into target_imputed
     
   script:
   """
@@ -135,7 +154,7 @@ process run_imputation {
   # run imputation
   minimac4 $refminimac $target \
            --format GT,DS,GP \
-           --output ${params.outpref}_chr${chr}.imputed.vcf.gz \
+           --output ${params.outpref}_chr${chr}.${params.ref}_imputed.vcf.gz \
            --output-format vcf.gz \
            --threads ${task.cpus}
   """
@@ -151,7 +170,7 @@ process filter_imputed {
   tuple val(chr), file(vcf) from target_imputed
 
   output:
-  file("${params.outpref}_chr${chr}.imputed.*.vcf.gz") into target_imputed_filtered
+  file("${params.outpref}_chr${chr}.${params.ref}_imputed.*.vcf.gz") into target_imputed_filtered
 
   script:
   """
@@ -159,7 +178,7 @@ process filter_imputed {
 
   bcftools filter -e "INFO/MAF < $params.thres_maf" -Ou $vcf | \
     bcftools filter -e "INFO/R2 < $params.thres_r2" \
-    -Oz -o ${params.outpref}_chr${chr}.imputed.MAF${params.thres_maf}_R2${params.thres_r2}.vcf.gz
+    -Oz -o ${params.outpref}_chr${chr}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.vcf.gz
   """
 }
 
@@ -173,7 +192,7 @@ process extract_variants {
   file vcfs from target_imputed_filtered.toList()
 
   output:
-  file("${params.outpref}.imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv")
+  file("${params.outpref}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv")
 
   script:
   """
@@ -192,7 +211,7 @@ process extract_variants {
     mutate(across(any_of(info[-1]), ~str_remove(.x, "^.+=") %>% as.numeric())) %>%
     arrange(`#CHROM`, POS)
 
-  fwrite(variants, "${params.outpref}.imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv", sep = "\\t")
+  fwrite(variants, "${params.outpref}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv", sep = "\\t")
   """
 }
 
