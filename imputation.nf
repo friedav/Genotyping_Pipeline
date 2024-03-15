@@ -155,6 +155,7 @@ process run_imputation {
   # run imputation
   minimac4 $refminimac $target \
            --format GT,DS,GP \
+           --all-typed-sites \
            --output ${params.outpref}_chr${chr}.${params.ref}_imputed.vcf.gz \
            --output-format vcf.gz \
            --threads ${task.cpus}
