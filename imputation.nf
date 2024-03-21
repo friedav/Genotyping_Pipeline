@@ -22,6 +22,9 @@ bfile = Channel.value( [params.bfile_pref,
                        file("${params.bfile_dir}/${params.bfile_pref}.fam")] )
 
 if(params.ref =~ /HRC/) {
+  // flag for William Rayner's perl script whether HRC or 1000G is used
+  check_script_refflag = "--hrc"
+
   // reference haplotypes
   refdir = "$baseDir/data/HRC1.1"
   refvariants = file("$refdir/HRC.r1-1.EGA.GRCh37.sites.tab")
@@ -33,6 +36,9 @@ if(params.ref =~ /HRC/) {
                       .map{ file -> [ (file.name =~ /chr(\d+)/)[0][1], file ] } 
 
 } else if(params.ref =~ /1kg/) {
+  // flag for William Rayner's perl script whether HRC or 1000G is used
+  check_script_refflag = "--1000g"
+
   // reference haplotypes
   refdir = "$baseDir/data/1kg_Phase3"
   refvariants = file("$refdir/1000GP_Phase3_combined.legend")
@@ -47,14 +53,11 @@ if(params.ref =~ /HRC/) {
   error "Error: Currently, only HRC or 1kg are implemented as --ref parameter"
 }
 
-// reference fasta file
-reffasta = file("$baseDir/data/1kg_Phase3/human_g1k_v37.fasta")  
-
 // genetic coordinates
 genmap = file("/home/fdavid/bin/Eagle_v2.4.1/tables/genetic_map_hg19_withX.txt.gz")
 
-// chromosomes to parallelize over (typecast to string necessary to combine with refeagle)
-chrs = Channel.of(1..22).map{ it -> "$it" }
+// William Rayner's perl script to align target to reference data
+check_script = "$baseDir/bin/HRC-1000G-check/HRC-1000G-check-bim.pl"
 
 // thresholds for post-imputation filtering
 params.thres_maf = 0.01
@@ -64,41 +67,62 @@ params.thres_r2 = 0.3
 
 /**** Processes ****/
 
-/* prepare target bcf for phasing:
- * split input data by chromosome, recode into vcf, split multiallelic sites, 
- * align to reference, make index
+/* run pre-imputation checks on target and reference data using Will Rayner's
+ * script from https://www.chg.ox.ac.uk/~wrayner/tools/, according to
+ * https://imputationserver.readthedocs.io/en/latest/prepare-your-data/
  */
-process prep_target_bcf {
+process check_target {
   input:
-  val chr from chrs  
   tuple val(pref), file(bed), file(bim), file(fam) from bfile
-  file reffasta
-  
+  file refvariants
+
   output:
-  tuple val(chr), file("${pref}_chr${chr}.bcf"), file("*.bcf.csi") into target_bcf
-  
+  file("*check-updated*.vcf") into target_checked
+
   script:
   """
-  module load bzip2 
- 
   # make allele codes uppercase
   awk '{print \$1, \$2, \$3, \$4, toupper(\$5), toupper(\$6)}' $bim \
         > ${pref}.uppercaseAlleles.bim
 
-  plink2 \
-    --bfile $pref --chr ${chr}  \
+  plink \
+    --bfile $pref \
     --bim ${pref}.uppercaseAlleles.bim \
-    --snps-only just-acgt \
-    --recode vcf id-paste=iid bgz \
-    --ref-from-fa $reffasta \
-    --out ${pref}_chr${chr}
+    --freq \
+    --make-bed \
+    --out ${pref}_check
 
-  # split multiallelic sites into biallelic records
-  bcftools view -Ou ${pref}_chr${chr}.vcf.gz | \
-    bcftools norm -Ou -m -any | \
-    bcftools norm -Ou -d none -f $reffasta --check-ref ws | \
-    bcftools view -Ob -o ${pref}_chr${chr}.bcf -m 2 -M 2 && \
-    bcftools index -f ${pref}_chr${chr}.bcf
+  perl $check_script -b ${pref}_check.bim \
+                     -f ${pref}_check.frq \
+                     -r $refvariants "$check_script_refflag"
+
+  sh ./Run-plink.sh
+  """
+}
+
+target_checked.flatten()
+              .map{ file -> [ (file.name =~ /chr(\d+).vcf/)[0][1], file ] }
+              .set{ target_checked_byChr }
+
+
+/* prepare target bcf for phasing and make bcf index
+ */ 
+process prep_target_bcf {
+  tag "chr${chr}"
+
+  input:
+  tuple val(chr), file(vcf) from target_checked_byChr
+    
+  output:
+  tuple val(chr), file("*.bcf"), file("*.bcf.csi") into target_bcf
+  
+  script:
+  """
+  module load bzip2 
+
+  # convert to bcf (keep only biallelic sites) and make index
+  bcftools view -Ob $vcf -o ${params.outpref}_chr${chr}.bcf -m 2 -M 2
+  bcftools index -f ${params.outpref}_chr${chr}.bcf
   """
 }
 
