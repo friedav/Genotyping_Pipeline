@@ -4,6 +4,7 @@ resources/
 reports/
 env/
 work/
+testing/
 bin/HRC-1000G-check/
 .nextflow/
 .nextflow.log*
