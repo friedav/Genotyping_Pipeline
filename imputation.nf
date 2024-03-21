@@ -196,7 +196,8 @@ process filter_imputed {
   tuple val(chr), file(vcf) from target_imputed
 
   output:
-  file("${params.outpref}_chr${chr}.${params.ref}_imputed.*.vcf.gz") into target_imputed_filtered
+  tuple val(chr), 
+    file("${params.outpref}_chr${chr}.${params.ref}_imputed.*.vcf.gz") into target_imputed_filtered
 
   script:
   """
@@ -209,35 +210,43 @@ process filter_imputed {
 }
 
 
-/* extract variant info file */
+/* extract variant info files */
 process extract_variants {
+  input:
+  tuple val(chr), file(vcf) from target_imputed_filtered
+
+  output:
+  file("variants*.tsv") into variants_by_chr
+
+  script:
+  """
+  module load Java/17.0.6
+  module load bzip2
+
+  bcftools view --drop-genotypes -Oz -o variants_chr${chr}.vcf.gz $vcf
+  bcftools index --tbi -f variants_chr${chr}.vcf.gz
+
+  gatk VariantsToTable -V variants_chr${chr}.vcf.gz  -O variants_chr${chr}.tsv
+  """
+}
+
+
+/* merge chr-level variant info files */
+process join_variant_tables {
   publishDir "$params.outdir", mode: 'copy'
-  module 'R'
 
   input:
-  file vcfs from target_imputed_filtered.toList()
+  file(variants) from variants_by_chr.toSortedList( { a, b -> 
+                            def chr_a = (a =~ /chr(\d+)/)[0][1] as Integer
+                            def chr_b = (b =~ /chr(\d+)/)[0][1] as Integer
+                            return chr_a <=> chr_b } )
 
   output:
   file("${params.outpref}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv")
 
   script:
   """
-  #!/usr/bin/env Rscript
-  library(tidyverse); library(data.table)
-
-  # fields in INFO column
-  info <- c("TYPE", "AF", "MAF", "AVG_CS", "R2", "ER2")
-
-  variants <- list.files(pattern = ".vcf.gz") %>%
-    lapply(function(file) {
-      df <- fread(cmd = paste('zgrep -v "##"', file, '| cut -f1-8')) %>%
-        mutate(INFO = str_replace(INFO, "TYPED;IMPUTED", "TYPED"))
-  }) %>% bind_rows() %>%
-    separate(INFO, into = info, sep = ";") %>%
-    mutate(across(any_of(info[-1]), ~str_remove(.x, "^.+=") %>% as.numeric())) %>%
-    arrange(`#CHROM`, POS)
-
-  fwrite(variants, "${params.outpref}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv", sep = "\\t")
+  awk 'NR==1 || FNR > 1' $variants > \
+    "${params.outpref}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.variants.tsv"
   """
 }
-
