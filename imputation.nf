@@ -28,7 +28,7 @@ if(params.ref =~ /HRC/) {
   // reference haplotypes
   refdir = "$baseDir/data/HRC1.1"
   refvariants = file("$refdir/HRC.r1-1.EGA.GRCh37.sites.tab")
-  refeagle = Channel.fromFilePairs("$refdir/BCF/HRC.r1-1.EGA.GRCh37.chr*.haplotypes.{bcf,bcf.csi}")
+  refeagle = Channel.fromFilePairs("$refdir/BCF_QCed/HRC.r1-1.EGA.GRCh37.chr*.haplotypes.{bcf,bcf.csi}")
                     .filter{ it[0] =~ /chr\d+/ }
                     .map{ pref, files -> [(pref =~ /chr(\d+)/)[0][1], files[0], files[1]] }
   refminimac = Channel.fromPath("$refdir/MVCF/HRC.r1-1.EGA.GRCh37.chr*.haplotypes.msav")
@@ -216,7 +216,7 @@ process extract_variants {
   tuple val(chr), file(vcf) from target_imputed_filtered
 
   output:
-  file("variants*.tsv") into variants_by_chr
+  file("variants*.fixedQUAL.tsv") into variants_by_chr
 
   script:
   """
@@ -227,6 +227,14 @@ process extract_variants {
   bcftools index --tbi -f variants_chr${chr}.vcf.gz
 
   gatk VariantsToTable -V variants_chr${chr}.vcf.gz  -O variants_chr${chr}.tsv
+
+  # for some unknown reason, GATK's VariantsToTable replaces the "." in QUAL 
+  # with "-10.0"; use awk to revert back to expected "."
+  # (see https://github.com/broadinstitute/gatk/issues/8748)
+  awk -F "\\t" 'BEGIN {OFS=FS} {
+    if ( \$6 == "-10.0" ) \$6 = "."
+    print \$0
+    }' variants_chr${chr}.tsv > variants_chr${chr}.fixedQUAL.tsv
   """
 }
 
