@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 /*
- * Genotype imputation
+ * Genotype phasing and imputation
  */
  
 
@@ -52,6 +52,10 @@ if(params.ref =~ /HRC/) {
 } else {
   error "Error: Currently, only HRC or 1kg are implemented as --ref parameter"
 }
+
+// dbSNP common variants as reference for RSIDs 
+params.dbsnp = "$baseDir/data/dbSNP_human_9606_b151_GRCh37p13/00-All.vcf.gz"
+dbsnp = file(params.dbsnp)
 
 // genetic coordinates
 genmap = file("/home/fdavid/bin/Eagle_v2.4.1/tables/genetic_map_hg19_withX.txt.gz")
@@ -105,8 +109,7 @@ target_checked.flatten()
               .set{ target_checked_byChr }
 
 
-/* prepare target bcf for phasing and make bcf index
- */ 
+/* prepare target bcf for phasing and make bcf index */ 
 process prep_target_bcf {
   tag "chr${chr}"
 
@@ -132,11 +135,12 @@ process run_phasing {
   tag "chr${chr}"
 
   input:
-  tuple val(chr), file(refbcf), file(refidx), file(targetbcf), file(targetidx) from refeagle.combine(target_bcf, by:0)
+  tuple val(chr), file(refbcf), file(refidx), file(targetbcf), file(targetidx) \
+    from refeagle.combine(target_bcf, by:0)
   file(genmap)
 
   output:
-  tuple val(chr), file("${params.outpref}_chr${chr}.${params.ref}_phased.vcf.gz") into target_phased
+  tuple val(chr), file("*_phased.vcf.gz") into target_phased
 
   script:
   """
@@ -156,13 +160,13 @@ process run_phasing {
 /* imputation */
 process run_imputation {
   tag "chr${chr}"
-  publishDir "$params.outdir", mode: 'copy'
-
+  
   input:
-  tuple val(chr), file(target), file(refminimac) from target_phased.combine(refminimac, by:0)
+  tuple val(chr), file(target), file(refminimac) \
+    from target_phased.combine(refminimac, by:0)
 
   output:
-  tuple val(chr), file("${params.outpref}_chr${chr}.${params.ref}_imputed.vcf.gz") into target_imputed
+  tuple val(chr), file("*_imputed.vcf.gz") into target_imputed
     
   script:
   """
@@ -183,6 +187,32 @@ process run_imputation {
            --output ${params.outpref}_chr${chr}.${params.ref}_imputed.vcf.gz \
            --output-format vcf.gz \
            --threads ${task.cpus}
+
+  ## --sites flag produces .vcf.gz without genotype fields; omit in favor of 
+  ## own implementation of generation of variant table
+  #--sites ${params.outpref}_chr${chr}.${params.ref}_imputed.sites \
+  """
+}
+
+
+/* annotation of rsIDs from dbSNP */
+process annotate_rsid {
+  tag "chr${chr}"
+  publishDir "$params.outdir", mode: 'copy'
+
+  input:
+  tuple val(chr), file(vcf) from target_imputed
+
+  output:
+  tuple val(chr), ("*_imputed.dbSNP_rsIDs.vcf.gz") into target_imputed_annot
+
+  script:
+  """
+  module load bzip2
+  bcftools index --tbi -f $vcf
+  bcftools annotate -a $params.dbsnp -c ID \
+    -o ${params.outpref}_chr${chr}.${params.ref}_imputed.dbSNP_rsIDs.vcf.gz \
+    $vcf
   """
 }
 
@@ -193,19 +223,23 @@ process filter_imputed {
   publishDir "$params.outdir", mode: 'copy'
 
   input:
-  tuple val(chr), file(vcf) from target_imputed
+  tuple val(chr), file(vcf) from target_imputed_annot
 
   output:
   tuple val(chr), 
-    file("${params.outpref}_chr${chr}.${params.ref}_imputed.*.vcf.gz") into target_imputed_filtered
+    file("*_imputed.dbSNP_rsIDs.MAF*.vcf.gz") into target_imputed_filtered
 
   script:
   """
   module load bzip2
 
+  # long name of output file -> break into two parts to reduce line width in script
+  outfile_p1="${params.outpref}_chr${chr}.${params.ref}_imputed.dbSNP_rsIDs"
+  outfile_p2=".MAF${params.thres_maf}_R2${params.thres_r2}.vcf.gz"
+
   bcftools filter -e "INFO/MAF < $params.thres_maf" -Ou $vcf | \
     bcftools filter -e "INFO/R2 < $params.thres_r2" \
-    -Oz -o ${params.outpref}_chr${chr}.${params.ref}_imputed.MAF${params.thres_maf}_R2${params.thres_r2}.vcf.gz
+    -Oz -o "\${outfile_p1}\${outfile_p2}"
   """
 }
 
