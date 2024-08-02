@@ -24,3 +24,5 @@ dependencies:
   - r-here
   - r-e1071 # required by KING
   - r-doparallel # used by KING but not required
+  - r-igraph # for GENESIS (contains PC-AiR method)
+  - bioconductor-genesis
