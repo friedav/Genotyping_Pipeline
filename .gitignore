@@ -19,3 +19,4 @@ nextflow_wrapper.job
 *.out
 *.log
 *.html
+*conda_migration*

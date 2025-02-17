@@ -1,9 +1,8 @@
-name: PRS_pipeline
+name: Genotyping_pipeline
 
 channels:
   - conda-forge
   - bioconda
-  - defaults
 
 dependencies:
   - plink=1.90b6.12
