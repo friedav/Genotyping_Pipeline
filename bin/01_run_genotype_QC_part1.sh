@@ -78,9 +78,14 @@ plink --bfile ${out}_QC2 --geno 0.02 --hwe include-nonctrl 1e-3 --maf 0.05 \
 # LD pruning before --het calculation suggested in Plink documentation
 plink --bfile ${out}_QC2 --extract ${out}_QC2_pruned.prune.in \
       --het --out ${out}_QC2_het
-tail -n +2  ${out}_QC2_het.het |
-    awk -v 'OFS=\t' '{if ($6 > 0.2 || $6 < -0.2) print $1,$2}' \
-    > ${out}_QC2_het.remove
+
+# plot distribution of F estimates
+Rscript bin/plot_F_distribution.R ${out}_QC2_het.het -4,4
+
+# make list of samples (${out}_QC2_het.remove) where F estimate is more than 
+# 4 SD away from mean
+Rscript bin/get_Fhet_outliers.R ${out}_QC2_het.het 4
+
 plink --bfile ${out}_QC2 --remove ${out}_QC2_het.remove \
       --make-bed --out ${out}_QC3
 sed 's/$/\tAutosomal heterozygosity/' ${out}_QC2_het.remove \
@@ -103,7 +108,7 @@ sed 's/$/\tAutosomal heterozygosity/' ${out}_QC2_het.remove \
 plink --bfile ${out}_QC3 --extract ${out}_QC2_pruned.prune.in --check-sex 0.3 \
       --out ${out}_QC3_sex
 awk '$5 == "PROBLEM"' ${out}_QC3_sex.sexcheck
-Rscript bin/plot_F_distribution.R ${out}_QC3_sex.sexcheck
+Rscript bin/plot_F_distribution.R ${out}_QC3_sex.sexcheck 0.3,0.8
 
 # issues with x chromosomal heterozygosity
 tail -n +2  ${out}_QC3_sex.sexcheck | awk -v 'OFS=\t' '{$1=$1};1' |
